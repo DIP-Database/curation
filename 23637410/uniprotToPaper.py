@@ -20,13 +20,7 @@ def extractUNIID(uniprotFile):
     for colNum in geneToUniprot[0,:]:
         if (geneToUniprot[0,1] == "Entry"):
             return (geneToUniprot[1:,1])
-    print("Error, no column titled Entry found")
-    
-def extractOriginalIdentifier(uniprotFile):
-    OriginalIdentifier = np.genfromtxt(uniprotFile,dtype=str,delimiter='\t',usecols=(0))
-    return (OriginalIdentifier[1:,0])
-    print("Error, no column titled Entry found")
-    
+    print("Error, no column titled Entry found")    
     
 def writeSimilarMolecules(UNIIDlist,fileToWrite):
     
