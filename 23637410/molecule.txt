@@ -1,0 +1,7 @@
+
+
+moleculeMI:0326(protein)	uprot: P84098	1	11120(IBV)
+exprole	prey			
+exprep	MI:0222(physiological)	MI:0350(purified)		
+biorole	MI:0499(unspecified)			
+idmethod	MI:0396(predetermined) MI:2287(id by structure determination)		
