@@ -6,11 +6,10 @@ Created on Tue Jul  6 19:07:10 2021
 @author: ericwolos
 """
 
-import urllib
+
 import pdbRelated as pb
 import argparse
 from lxml import etree
-import os.path
 import os
 
 
@@ -34,24 +33,18 @@ try:
 except OSError:
     print("Directory '%s' can not be created" % path)
     
-# Multimer
-multimerFile = path + pdbname + ".html"
 
-if (os.path.exists(multimerFile)):
-    file = open(multimerFile,"r")
-else:
-    parsedurl = etree.parse(urllib.request.urlopen(multimerUrl))
-    result = etree.tostring(parsedurl, method="html")
-    file = open(multimerFile, 'w')
-    file.write(result.decode("utf-8"))
-    file = open(multimerFile,"r")
-    
+multimerPath = path + pdbname + ".html"
 
-parsedurl = etree.parse(file)
-composition = parsedurl.xpath('/pisa_multimers/pdb_entry/asm_set/assembly/composition/text()')[0]
-# End multimer
+multimerFile = pb.getPage(multimerUrl, multimerPath)
 
-cifFile = pdbname + ".cif"
+
+multparsedurl = etree.parse(multimerFile)
+composition = multparsedurl.xpath('/pisa_multimers/pdb_entry/asm_set/assembly/composition/text()')[0]
+
+
+cifPath = path + pdbname + ".cif"
+cifFile = pb.getCif(pdbname,cifPath)
 
 chainDict = pb.scrapeCIF(cifFile)
 

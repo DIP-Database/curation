@@ -7,6 +7,10 @@ Created on Tue Jul  6 21:23:53 2021
 """
 import re
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
+import urllib
+from lxml import etree
+import os.path
+import requests
 
 class subunit:
     def __init__(self,identifier,stoichiometry,uniprotID,seq):
@@ -68,6 +72,31 @@ def scrapeCIF(cifFile):
     
     
     return chainDict
+
+
+def getPage(url, filePath):
+    
+    if (os.path.exists(filePath)):
+        file = open(filePath,"r")
+    else:
+        parsedurl = etree.parse(urllib.request.urlopen(url))
+        result = etree.tostring(parsedurl, method="html")
+        file = open(filePath, 'w')
+        file.write(result.decode("utf-8"))
+        file = open(filePath,"r")
+    return file
+
+
+def getCif(pdb, filePath):
+    url = "https://files.rcsb.org/download/" + pdb + ".cif"
+    if (os.path.exists(filePath)):
+        file = open(filePath,"r")
+    else:
+        result = requests.get(url)
+        with open(filePath, 'wb') as file:
+            file.write(result.content)
+        file = open(filePath,"r")
+    return file
     
         
 
