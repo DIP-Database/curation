@@ -36,7 +36,7 @@ except OSError:
 
 multimerPath = path + pdbname + ".html"
 
-multimerFile = pb.getPage(multimerUrl, multimerPath)
+multimerFile = pb.getPageXml(multimerUrl, multimerPath)
 
 
 multparsedurl = etree.parse(multimerFile)
@@ -46,7 +46,7 @@ composition = multparsedurl.xpath('/pisa_multimers/pdb_entry/asm_set/assembly/co
 cifPath = path + pdbname + ".cif"
 cifFile = pb.getCif(pdbname,cifPath)
 
-chainDict = pb.scrapeCIF(cifFile)
+chainDict = pb.scrapeCIF(cifFile,path)
 
 newPDB = pb.pdb(pdbname,pb.scrapeComposition(composition,chainDict))
 print(pb.printPDBInfo(newPDB))
