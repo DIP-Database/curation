@@ -6,7 +6,6 @@ Created on Tue Jul  6 21:23:53 2021
 @author: ericwolos
 """
 import re
-from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 from Bio import pairwise2
 import urllib
 from lxml import etree
@@ -69,49 +68,36 @@ def getIsoformNames(uniprotID,dirPath):
     return isoforms
 
 def scrapeCIF(cifFile, dirPath):
-    
-    mmcifDictionary = MMCIF2Dict(cifFile)
-    mmcifUniprotID = mmcifDictionary["_struct_ref_seq.pdbx_db_accession"]
-    mmcifChainID = mmcifDictionary["_struct_ref_seq.pdbx_strand_id"]
-    
-    mmcifSeqUniprotID = mmcifDictionary["_struct_ref.pdbx_db_accession"]
-    mmcifChainSeq = mmcifDictionary["_struct_ref.pdbx_seq_one_letter_code"]
+
     
     chainDict = {}
-    for proteinNum in range(0,len(mmcifUniprotID)):
-        
-        curChain = mmcifChainID[proteinNum]
-        seq = ""
-        curUniprotID = mmcifUniprotID[proteinNum]
-    
-        
-        # Get the FASTA sequence from cif by searching with the Uniprot ID
-        
-        for proteinNum in range(0,len(mmcifChainSeq)):
-            if mmcifSeqUniprotID[proteinNum] == curUniprotID:
-                seq = re.sub(r'[\W_]+', '', mmcifChainSeq[proteinNum])
+    for record in SeqIO.parse(cifFile,"cif-seqres"):
+        if (len(record.dbxrefs) > 0):
             
-                
+            curUniprotID = record.dbxrefs[0][4:]
+            curChain = re.sub('\w+\:', '', record.id)
+            seq = record.seq
             
-        isfmNames = getIsoformNames(curUniprotID, dirPath)
+            isfmNames = getIsoformNames(curUniprotID, dirPath)
+            
+            #Generate a dictionary of format:
+            # isfmMasterDict[isoform uniprot ID] = sequence of isoform
+            
+            isfmMasterDict = {}
+            likelyID = (curUniprotID,False)
+            if (len(isfmNames) > 0):
+                for isfm in isfmNames:
+                    isfmFile = getIsoform(isfm, dirPath)
+                    isfmDict = SeqIO.to_dict(SeqIO.parse(isfmFile, "fasta"))
+                    for record in isfmDict:
+                        isfmMasterDict[isfm] = isfmDict[record].seq
+                    
+                    
+                # rank this sequence against possible isoforms on uniprot
+                likelyID = rankAlignments(seq, isfmMasterDict, curUniprotID)
+            
+            chainDict[curChain] = [likelyID[0],seq, likelyID[1]]     
         
-        #Generate a dictionary of format:
-        # isfmMasterDict[isoform uniprot ID] = sequence of isoform
-        isfmMasterDict = {}
-        likelyID = curUniprotID
-        if (len(isfmNames) > 0):
-            for isfm in isfmNames:
-                isfmFile = getIsoform(isfm, dirPath)
-                isfmDict = SeqIO.to_dict(SeqIO.parse(isfmFile, "fasta"))
-                for record in isfmDict:
-                    isfmMasterDict[record] = isfmDict[record].seq
-                
-                
-            # rank this sequence against possible isoforms on uniprot
-            likelyID = rankAlignments(seq, isfmMasterDict, curUniprotID)
-        
-        chainDict[curChain] = [likelyID,seq]
-    
     
     return chainDict
 
@@ -142,28 +128,45 @@ def getCif(pdb, filePath):
     
 
 
-
-
 def rankAlignments(sequence,listOfPossibleIsoforms, uniprotID):
     maxScore = -1
     maxScoreName = ""
+    scores = []
+    isBR = False
     for isfmName in listOfPossibleIsoforms:
-        isoform = listOfPossibleIsoforms[isfmName]#.seq
-        alignmentScore = pairwise2.align.globalms(sequence, isoform, 2, -1, -.5, -.5,score_only=True)
+        isoform = listOfPossibleIsoforms[isfmName] #isoform sequence
+        alignmentScore = pairwise2.align.globalmx(sequence, isoform, 2, -1, score_only=True)
+        scores.append(alignmentScore)
         if (alignmentScore > maxScore):
             maxScore = alignmentScore
             maxScoreName = isfmName
-    if (maxScoreName != ""):
+            
+            # Check if binding region
+            if (len(sequence) != len(isoform)):
+                isBR = True
+            else:
+                isBR = False
+    
+    # Check if mutiple isoforms get the same score
+    duplicates = False
+    if (scores.count(maxScore) > 1):
+        duplicates = True
+          
+            
+    if (maxScoreName != "" and duplicates == False):
         print ("found likely isoform for ", uniprotID, " with score ", maxScore)
         p = re.compile('\w+\-\d')
         parsed = p.findall(maxScoreName)
         if (len(parsed) > 0):
-            return parsed[0]
+            return (parsed[0],isBR)
         else:
             return maxScoreName
+    elif(maxScoreName != "" and duplicates == True):
+        print ("multiple likely isoforms for ", uniprotID, "with score ", maxScore)
+        return (uniprotID, isBR)
     else:
         print ("unable to find likely isoform for ", uniprotID, "with score ", maxScore)
-        return uniprotID
+        return (uniprotID, isBR)
     
     
     
