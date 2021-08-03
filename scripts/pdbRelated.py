@@ -12,6 +12,7 @@ from lxml import etree
 import os.path
 import requests
 from Bio import SeqIO
+from Bio.Align import substitution_matrices
 
 class subunit:
     def __init__(self,identifier,stoichiometry,uniprotID,seq):
@@ -96,7 +97,9 @@ def scrapeCIF(cifFile, dirPath):
                 # rank this sequence against possible isoforms on uniprot
                 likelyID = rankAlignments(seq, isfmMasterDict, curUniprotID)
             
-            chainDict[curChain] = [likelyID[0],seq, likelyID[1]]     
+            likelyIsfmName = likelyID[0]
+            isfmRange = likelyID[1]
+            chainDict[curChain] = [likelyIsfmName,seq, isfmRange]     
         
     
     return chainDict
@@ -129,45 +132,74 @@ def getCif(pdb, filePath):
 
 
 def rankAlignments(sequence,listOfPossibleIsoforms, uniprotID):
+    blosum = substitution_matrices.load("BLOSUM62")
     maxScore = -1
     maxScoreName = ""
     scores = []
     isBR = False
     for isfmName in listOfPossibleIsoforms:
         isoform = listOfPossibleIsoforms[isfmName] #isoform sequence
-        alignmentScore = pairwise2.align.globalmx(sequence, isoform, 2, -1, score_only=True)
+        alignmentScore = pairwise2.align.globaldx(sequence, isoform, blosum, score_only=True)
         scores.append(alignmentScore)
         if (alignmentScore > maxScore):
             maxScore = alignmentScore
             maxScoreName = isfmName
             
-            # Check if binding region
-            if (len(sequence) != len(isoform)):
-                isBR = True
-            else:
-                isBR = False
+    
+    # Verify that any likely isoform was identified
+    if (maxScoreName == ""):
+        print ("unable to find likely isoform for ", uniprotID)
+        return (uniprotID, isBR)
     
     # Check if mutiple isoforms get the same score
     duplicates = False
     if (scores.count(maxScore) > 1):
         duplicates = True
-          
-            
-    if (maxScoreName != "" and duplicates == False):
-        print ("found likely isoform for ", uniprotID, " with score ", maxScore)
+        
+    # Detect range by finding first identical residue in both first and reversed sequences
+    bestAlignment = pairwise2.align.globaldx(sequence, listOfPossibleIsoforms[maxScoreName] , blosum)
+    seqA = bestAlignment[0][0]
+    seqB = bestAlignment[0][1]
+    beginIndex = findFirstIdenticalResidue(seqA, seqB)
+    # reverses sequences
+    reverseSeqA = seqA[::-1]
+    reverseSeqB = seqB[::-1]
+    endIndex = len(seqA) - findFirstIdenticalResidue(reverseSeqA, reverseSeqB) + 1
+
+    print(seqA,seqB)
+    # dashes is a string representing everything before the beginning of the alignment, and reversed. Used to count dashes
+    dashes = seqA[:beginIndex-1][::-1]
+    dashNum = 0
+    for char in dashes:
+        if (char == '-'):
+            dashNum += 1
+        else:
+            break
+    
+    
+    alignRange = (beginIndex - dashNum, endIndex - dashNum)
+        
+    
+    
+    
+    if (duplicates == False):
+        print ("found likely isoform for ", uniprotID, " with score ", maxScore, " and range", alignRange)
         p = re.compile('\w+\-\d')
         parsed = p.findall(maxScoreName)
         if (len(parsed) > 0):
-            return (parsed[0],isBR)
+            return (parsed[0],alignRange)
         else:
             return maxScoreName
-    elif(maxScoreName != "" and duplicates == True):
-        print ("multiple likely isoforms for ", uniprotID, "with score ", maxScore)
-        return (uniprotID, isBR)
     else:
-        print ("unable to find likely isoform for ", uniprotID, "with score ", maxScore)
-        return (uniprotID, isBR)
-    
+        print ("multiple likely isoforms for ", uniprotID, "with score ", maxScore, " and range", alignRange)
+        return (uniprotID, alignRange)
+
+def findFirstIdenticalResidue(seqA,seqB):
+    for residueNum in range(0,len(seqA)):
+        if seqA[residueNum] == seqB[residueNum]:
+            beginIndex = residueNum+1
+   #         print (seqA[residueNum:] , beginIndex)
+            return beginIndex
     
     
     
