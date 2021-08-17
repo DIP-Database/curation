@@ -14,6 +14,11 @@ import requests
 from Bio import SeqIO
 from Bio.Align import substitution_matrices
 
+
+# For debugging
+import pprint
+pp = pprint.PrettyPrinter(indent=4) 
+
 class subunit:
     def __init__(self,identifier,stoichiometry,uniprotID,seq):
         self.identifier = identifier
@@ -63,7 +68,7 @@ def getIsoform(uniprotID, dirPath):
 
 def getIsoformNames(uniprotID,dirPath):
     url = "https://www.uniprot.org/uniprot/" + uniprotID + ".xml"
-    file = getPageXml(url, dirPath + uniprotID + ".xml")
+    file = getPage(url, dirPath + uniprotID + ".xml")
     parsedurl = etree.parse(file)
     isoforms = parsedurl.xpath('/u:uniprot/u:entry/u:comment[@type="alternative products"]/u:isoform/u:id/text()',namespaces = {"u":"http://uniprot.org/uniprot"})
     return isoforms
@@ -105,7 +110,7 @@ def scrapeCIF(cifFile, dirPath):
     return chainDict
 
 
-def getPageXml(url, filePath):
+def getPage(url, filePath):
     
     if (os.path.exists(filePath)):
         file = open(filePath,"r")
@@ -139,7 +144,7 @@ def rankAlignments(sequence,listOfPossibleIsoforms, uniprotID):
     isBR = False
     for isfmName in listOfPossibleIsoforms:
         isoform = listOfPossibleIsoforms[isfmName] #isoform sequence
-        alignmentScore = pairwise2.align.globaldx(sequence, isoform, blosum, score_only=True)
+        alignmentScore = pairwise2.align.globalms(sequence, isoform, 2, -1 , -2, -0.1, score_only=True)
         scores.append(alignmentScore)
         if (alignmentScore > maxScore):
             maxScore = alignmentScore
@@ -166,21 +171,15 @@ def rankAlignments(sequence,listOfPossibleIsoforms, uniprotID):
     reverseSeqB = seqB[::-1]
     endIndex = len(seqA) - findFirstIdenticalResidue(reverseSeqA, reverseSeqB) + 1
 
-    print(seqA,seqB)
-    # dashes is a string representing everything before the beginning of the alignment, and reversed. Used to count dashes
-    dashes = seqA[:beginIndex-1][::-1]
-    dashNum = 0
-    for char in dashes:
-        if (char == '-'):
-            dashNum += 1
-        else:
-            break
-    
+    print(seqA)
+    print(seqB)
+
+    dashes = seqA[beginIndex-1:endIndex]
+    print(dashes)
+    dashNum = dashes.count('-')
     
     alignRange = (beginIndex - dashNum, endIndex - dashNum)
         
-    
-    
     
     if (duplicates == False):
         print ("found likely isoform for ", uniprotID, " with score ", maxScore, " and range", alignRange)
@@ -198,8 +197,52 @@ def findFirstIdenticalResidue(seqA,seqB):
     for residueNum in range(0,len(seqA)):
         if seqA[residueNum] == seqB[residueNum]:
             beginIndex = residueNum+1
-   #         print (seqA[residueNum:] , beginIndex)
             return beginIndex
+    
+def findInteractions(pdb, filePath):
+    interfaces = "https://www.ebi.ac.uk/pdbe/pisa/cgi-bin/interfaces.pisa?" + pdb.lower()
+    interfaceFile = getPage(interfaces, filePath)
+    parsedurl = etree.parse(interfaceFile)
+    chain1 = parsedurl.xpath('/pisa_interfaces/pdb_entry/interface/h-bonds/bond/chain-1/text()')
+    chain2 = parsedurl.xpath('/pisa_interfaces/pdb_entry/interface/h-bonds/bond/chain-2/text()')
+    
+    numchains = len(set(chain1+chain2))
+    
+    interactorPairs = []
+    for index in range(0,len(chain1)):
+        if chain1[index] < chain2[index]:
+            interactorPairs.append((chain1[index],chain2[index]))
+        else:
+            interactorPairs.append((chain2[index],chain1[index]))
+    result = []
+    [result.append(x) for x in interactorPairs if x not in result]
+
+    # Use of a graph data structure to store the interactions
+    # Each chain is a key to a dictionary whose value is a list of connected chains
+    graph = {}
+    for pair in result:
+        if pair[0] != pair[1]:
+            if not pair[0] in graph:
+                graph[pair[0]] = list(pair[1])
+            elif graph[pair[0]].count(pair[1]) < 1:
+                graph[pair[0]].append(pair[1])
+                
+    isDirect = True
+    for key in graph:
+        if len(graph[key]) != numchains - 1:
+            isDirect = False
+            break
+        
+    if isDirect:
+        print ("direct association")
+    else:
+        print ("physical association")
+        
+    pp.pprint(graph)
+    
+    return graph
+    
+
     
     
     

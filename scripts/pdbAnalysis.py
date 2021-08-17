@@ -27,7 +27,7 @@ multimerUrl = "https://www.ebi.ac.uk/pdbe/pisa/cgi-bin/multimers.pisa?" + pdbnam
 
 
 parentdir = os.getcwd() + "/"
-path = parentdir + "cache/" + pdbname[0] + "/" + pdbname + "/"
+path = parentdir + "cache/" + pdbname[:2] + "/" + pdbname + "/"
 try:
     os.makedirs(path, exist_ok = True)
 except OSError:
@@ -36,9 +36,13 @@ except OSError:
 
 multimerPath = path + pdbname + ".html"
 
-multimerFile = pb.getPageXml(multimerUrl, multimerPath)
+multimerFile = pb.getPage(multimerUrl, multimerPath)
+
+interfacePath = path + pdbname + ".xml"
+interface = pb.findInteractions(pdbname,interfacePath)
 
 
+'''
 multparsedurl = etree.parse(multimerFile)
 composition = multparsedurl.xpath('/pisa_multimers/pdb_entry/asm_set/assembly/composition/text()')[0]
 
@@ -50,5 +54,5 @@ chainDict = pb.scrapeCIF(cifFile,path)
 
 newPDB = pb.pdb(pdbname,pb.scrapeComposition(composition,chainDict))
 print(pb.printPDBInfo(newPDB))
-
+'''
 
