@@ -32,28 +32,39 @@ class pdb:
         self.identifier = identifier
         self.subunits = subunits
         
-def scrapeComposition(composition,chainDictionary):
-    listofSU = []
+    def printPDBInfo(self):
+        print(self.identifier)
+        for subunit in range(0,len(self.subunits)):
+            curSubUnit = self.subunits[subunit]
+            print (curSubUnit.identifier + " (" + curSubUnit.uniprotID + ")" 
+                   + " occurs " + str(curSubUnit.stoichiometry) + " times " +
+                   "with sequence: " + curSubUnit.seq)
+        
+
+# Analyzes composition of pdb via a PISA multimers file
+def scrapeComposition(multimerFile):
+    stoichDict = {}
+    multparsedurl = etree.parse(multimerFile)
     
+    # Verify that a valid entry is present
+    if (multparsedurl.xpath('/pisa_multimers/pdb_entry/status/text()')[0] != "Ok"):
+        return stoichDict
+    
+    composition = multparsedurl.xpath('/pisa_multimers/pdb_entry/asm_set/assembly/composition/text()')[0]
+    
+    # Use regular expressions to find the stoichiometry of each chain
     p = re.compile('([^\[\]]+)\[(\d+)\]')
     parsed = p.findall(composition)
     
+    # Fill up dictionary with chain and stoichiometry
     for element in parsed:
         identifier = element[0]
-        uniprotID = chainDictionary[identifier][0]
-        seq = chainDictionary[identifier][1]
-        listofSU.append(subunit(identifier,element[1],uniprotID,seq))
-    
-    return listofSU
+        stoichDict[identifier] = element[1]
+        
+    return stoichDict
 
-def printPDBInfo(newPDB):
-    print(newPDB.identifier)
-    for subunit in range(0,len(newPDB.subunits)):
-        curSubUnit = newPDB.subunits[subunit]
-        return (curSubUnit.identifier + " (" + curSubUnit.uniprotID + ")" 
-                + " occurs " + str(curSubUnit.stoichiometry) + " times " +
-                "with sequence: " + curSubUnit.seq)
-    
+
+# Gets fasta files from uniprot
 def getIsoform(uniprotID, dirPath):
     url = "https://www.uniprot.org/uniprot/" + uniprotID + ".fasta"
     filePath = dirPath + uniprotID + ".fasta"
@@ -66,6 +77,8 @@ def getIsoform(uniprotID, dirPath):
         file = open(filePath,"r")
     return file
 
+
+# Scrapes isoform names based off of a uniprot ID
 def getIsoformNames(uniprotID,dirPath):
     url = "https://www.uniprot.org/uniprot/" + uniprotID + ".xml"
     file = getPage(url, dirPath + uniprotID + ".xml")
@@ -73,9 +86,10 @@ def getIsoformNames(uniprotID,dirPath):
     isoforms = parsedurl.xpath('/u:uniprot/u:entry/u:comment[@type="alternative products"]/u:isoform/u:id/text()',namespaces = {"u":"http://uniprot.org/uniprot"})
     return isoforms
 
+
+
 def scrapeCIF(cifFile, dirPath):
 
-    
     chainDict = {}
     for record in SeqIO.parse(cifFile,"cif-seqres"):
         if (len(record.dbxrefs) > 0):
@@ -109,7 +123,7 @@ def scrapeCIF(cifFile, dirPath):
     
     return chainDict
 
-
+# The following two functions are designed to check if the file exists locally, and if not, get them from the internet
 def getPage(url, filePath):
     
     if (os.path.exists(filePath)):
@@ -137,7 +151,7 @@ def getCif(pdb, filePath):
 
 
 def rankAlignments(sequence,listOfPossibleIsoforms, uniprotID):
-    blosum = substitution_matrices.load("BLOSUM62")
+    
     maxScore = -1
     maxScoreName = ""
     scores = []
@@ -162,20 +176,23 @@ def rankAlignments(sequence,listOfPossibleIsoforms, uniprotID):
         duplicates = True
         
     # Detect range by finding first identical residue in both first and reversed sequences
-    bestAlignment = pairwise2.align.globaldx(sequence, listOfPossibleIsoforms[maxScoreName] , blosum)
+    # First, align:
+        
+    bestAlignment = pairwise2.align.globalms(sequence, listOfPossibleIsoforms[maxScoreName] , 2,-1,-2,-0.1)
+    
+    # Both alignment sequences:
     seqA = bestAlignment[0][0]
     seqB = bestAlignment[0][1]
     beginIndex = findFirstIdenticalResidue(seqA, seqB)
-    # reverses sequences
+    
+    # reverse sequences to find the first identical residue at the end of the range:
     reverseSeqA = seqA[::-1]
     reverseSeqB = seqB[::-1]
     endIndex = len(seqA) - findFirstIdenticalResidue(reverseSeqA, reverseSeqB) + 1
 
-    print(seqA)
-    print(seqB)
-
+    # interpret with the alignment output to find the range:
     dashes = seqA[beginIndex-1:endIndex]
-    print(dashes)
+
     dashNum = dashes.count('-')
     
     alignRange = (beginIndex - dashNum, endIndex - dashNum)
@@ -202,21 +219,32 @@ def findFirstIdenticalResidue(seqA,seqB):
 def findInteractions(pdb, filePath):
     interfaces = "https://www.ebi.ac.uk/pdbe/pisa/cgi-bin/interfaces.pisa?" + pdb.lower()
     interfaceFile = getPage(interfaces, filePath)
+    
     parsedurl = etree.parse(interfaceFile)
     chain1 = parsedurl.xpath('/pisa_interfaces/pdb_entry/interface/h-bonds/bond/chain-1/text()')
     chain2 = parsedurl.xpath('/pisa_interfaces/pdb_entry/interface/h-bonds/bond/chain-2/text()')
     
     numchains = len(set(chain1+chain2))
     
+    # conversion of chain lists to one single list of pairs of interacting residues
     interactorPairs = []
     for index in range(0,len(chain1)):
-        if chain1[index] < chain2[index]:
-            interactorPairs.append((chain1[index],chain2[index]))
-        else:
-            interactorPairs.append((chain2[index],chain1[index]))
+        interactorPairs.append((chain1[index],chain2[index]))
+        
+    # removal of duplicates
     result = []
     [result.append(x) for x in interactorPairs if x not in result]
-
+    
+    #pp.pprint(result)
+    
+    chainlist = []
+    for pair in result:
+        if pair[0] not in chainlist:
+            chainlist.append(pair[0])
+        if pair[1] not in chainlist:
+            chainlist.append(pair[1])
+    
+    
     # Use of a graph data structure to store the interactions
     # Each chain is a key to a dictionary whose value is a list of connected chains
     graph = {}
@@ -238,9 +266,13 @@ def findInteractions(pdb, filePath):
     else:
         print ("physical association")
         
-    pp.pprint(graph)
+    return (chainlist,result)  
+  
     
-    return graph
+    # The graph structure is useful for visualizing what subunits interact with each other
+    #pp.pprint(graph)
+    
+    #return graph
     
 
     
