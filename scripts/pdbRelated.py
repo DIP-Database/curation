@@ -12,7 +12,9 @@ from lxml import etree
 import os.path
 import requests
 from Bio import SeqIO
+from Bio.PDB import MMCIF2Dict as mm
 from Bio.Align import substitution_matrices
+
 
 
 # For debugging
@@ -20,11 +22,12 @@ import pprint
 pp = pprint.PrettyPrinter(indent=4) 
 
 class subunit:
-    def __init__(self,identifier,stoichiometry,uniprotID,seq):
+    def __init__(self,identifier,stoichiometry,uniprotID,seq,taxid):
         self.identifier = identifier
         self.stoichiometry = stoichiometry
         self.uniprotID = uniprotID
         self.seq = seq
+        self.taxid = taxid
 
 
 class pdb:
@@ -88,19 +91,27 @@ def getIsoformNames(uniprotID,dirPath):
 
 
 
-def scrapeCIF(cifFile, dirPath):
-
+def scrapeCIF(cifFile, cifFileCopy,dirPath):
+    
     chainDict = {}
-    for record in SeqIO.parse(cifFile,"cif-seqres"):
+    
+    parsedCif = SeqIO.parse(cifFile,"cif-seqres")
+
+    for record in parsedCif:
         if (len(record.dbxrefs) > 0):
-            
+            print(record.description)
             curUniprotID = record.dbxrefs[0][4:]
             curChain = re.sub('\w+\:', '', record.id)
             seq = record.seq
             
+            # Unsed to seperate out invalid uniprotIDs
+            if (len(curUniprotID) != 6 and len(curUniprotID) != 10):
+                continue
+            
+            
             isfmNames = getIsoformNames(curUniprotID, dirPath)
             
-            #Generate a dictionary of format:
+            # Generate a dictionary of format:
             # isfmMasterDict[isoform uniprot ID] = sequence of isoform
             
             isfmMasterDict = {}
@@ -118,10 +129,29 @@ def scrapeCIF(cifFile, dirPath):
             
             likelyIsfmName = likelyID[0]
             isfmRange = likelyID[1]
-            chainDict[curChain] = [likelyIsfmName,seq, isfmRange]     
+            chainInfo = {}
+            chainInfo["sequence"] = seq
+            chainInfo["likelyUniprotID"] = likelyIsfmName
+            chainInfo["isfmRange"] = isfmRange
+            chainDict[curChain] = chainInfo     
         
+    # Now, to determine which taxonomic ID corresponds to each subunit. This feature is not supported by Bio.SeqIO so lower level access with MMCIF2Dict is necessary
+    mmcifDict = mm.MMCIF2Dict(cifFileCopy)
+
+    ncbiDict = dict(zip(mmcifDict["_entity_src_gen.entity_id"],mmcifDict["_entity_src_gen.pdbx_host_org_ncbi_taxonomy_id"]))
+    refDict = dict(zip(mmcifDict["_struct_ref_seq.pdbx_strand_id"],mmcifDict["_struct_ref_seq.ref_id"]))
     
+    for key in chainDict:
+        chainDict[key]["taxid"] = ncbiDict[refDict[key]]
+
+    pp.pprint(chainDict)
     return chainDict
+
+def getHeaderInfo(cifFile):
+    mmcifDict = mm.MMCIF2Dict(cifFile)
+    pmid = mmcifDict["_citation.pdbx_database_id_PubMed"]
+    doi = mmcifDict["_citation.pdbx_database_id_DOI"]
+    return (pmid,doi)
 
 # The following two functions are designed to check if the file exists locally, and if not, get them from the internet
 def getPage(url, filePath):
@@ -129,6 +159,8 @@ def getPage(url, filePath):
     if (os.path.exists(filePath)):
         file = open(filePath,"r")
     else:
+        print(url)
+        print(filePath)
         parsedurl = etree.parse(urllib.request.urlopen(url))
         result = etree.tostring(parsedurl, method="html")
         file = open(filePath, 'w')

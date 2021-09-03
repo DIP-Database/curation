@@ -14,27 +14,39 @@ class TabFile:
         self.tabfile = open(filename+".txt","w")
         
     # Add molecule to interaction using a template file    
-    def addMolecule(self,uniprotID, templateFile):
+    def addMolecule(self,uniprotID, taxid, templateFile):
         self.tabfile.write('\n')
         molecule = ""
         template = open(templateFile,'r')
         for ln in template:
             molecule += ln
-        cmolecule = molecule.replace("%UNIPROT%","uprot:" + uniprotID)
+        cmolecule = molecule.replace("%UNIPROT%","uprot:" + uniprotID).replace("%TAXID%",taxid)
         self.tabfile.write(cmolecule)
         
         
     # Add interaction using a template file
-    def addInteraction(self,templateFile):
+    def addInteraction(self,templateFile,isPhysical, pdb, taxid):
         self.tabfile.write('\n')
         interaction = ""
+        
+        interactionType = "MI:0407(direct)"
+        if (isPhysical):
+            interactionType = "MI:0915(physical)"
+        
         template = open(templateFile,'r')
         for ln in template:
             interaction += ln
-        self.tabfile.write(interaction)
+        cinteraction = interaction.replace("%INTERACTION%",interactionType).replace("%PDB%",pdb).replace("%TAXID%",taxid)
+        self.tabfile.write(cinteraction)
         
-    def addHeader(self,doi,source,pmid):
-        header = "source\t" + source + '\n'+"doi\t" + doi + "\n" + "pmid\t" + pmid + "\n"
-        self.tabfile.write(header)
+    def addHeader(self,templateFile,doi,source,pmid,pdb):
+        header = ""
+    
+        template = open(templateFile,'r')
+        for ln in template:
+            header += ln
+        cheader = header.replace("%DOI%",doi).replace("%SOURCE%",source).replace("%PMID%",pmid).replace("%PDB%",pdb)
+        self.tabfile.write(cheader)
+
 
     

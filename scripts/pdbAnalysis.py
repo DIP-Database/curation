@@ -50,7 +50,7 @@ multimerPath = path + pdbname + ".mlt.xml"
 multimerFile = pb.getPage(multimerUrl, multimerPath)
 stoichDict = pb.scrapeComposition(multimerFile)
 
-interfacePath = path + pdbname + ".xml"
+interfacePath = path + pdbname + ".int.xml"
 interface = pb.findInteractions(pdbname,interfacePath)
 chainlist = interface[0]
 interfacePairs = interface[1]
@@ -59,49 +59,74 @@ interfacePairs = interface[1]
 
 cifPath = path + pdbname + ".cif"
 cifFile = pb.getCif(pdbname,cifPath)
+# Copy of cif File necessary because parser module changes the object so it cannot be parsed twice
+cifFile2 = pb.getCif(pdbname,cifPath)
+cifFile3 = pb.getCif(pdbname,cifPath)
 
-chainDict = pb.scrapeCIF(cifFile,path)
+
+chainDict = pb.scrapeCIF(cifFile,cifFile2,path)
+
 
 listOfSU = []
+listOfTXID = []
 for chain in chainlist:
     if chain in chainDict:
-        uniprotID = chainDict[chain][0]
-        if len(uniprotID) != 6:
-            print (chain," is likely an antibody")
-        else:
-            stoich = 0
-            if chain in stoichDict:
-                stoich = stoichDict[chain]
-            seq = chainDict[chain][0]
-            newSU = pb.subunit(chain, stoich, chainDict[chain][0], seq)
-            listOfSU.append(newSU)
+        uniprotID = chainDict[chain]["likelyUniprotID"]
+        
+        stoich = 0
+        if chain in stoichDict:
+            stoich = stoichDict[chain]
+        SUtaxid = chainDict[chain]["taxid"]    
+        newSU = pb.subunit(chain, stoich, uniprotID, chainDict[chain]["sequence"], SUtaxid)
+        listOfSU.append(newSU)
+        listOfTXID.append(SUtaxid)
+        
 
 
 newpdb = pb.pdb(pdbname, listOfSU)
 
 tabfile = tb.TabFile(pmid)
 
-doi = "testdoi"
-tabfile.addHeader(doi, source, pmid)
-tabfile.addInteraction("interaction.txt")
+headerInfo = pb.getHeaderInfo(cifFile3)
+pmid = headerInfo[0][0]
+doi = headerInfo[1][0]
+tabfile.addHeader("header.txt",doi, source, pmid, pdbname)
+
+overallTaxid = -1
+if (len(set(listOfTXID)) == 1):
+    overallTaxid = listOfTXID[0]
+    
+tabfile.addInteraction("interaction.txt",True,pdbname,overallTaxid)
 
 SUnames = []
 
 for SU in listOfSU:
     SUnames.append(SU.identifier)
-    tabfile.addMolecule(SU.uniprotID, "molecule.txt")
+    tabfile.addMolecule(SU.uniprotID, SU.taxid, "molecule.txt")
     
 for pair in interfacePairs:
     if pair[0] in SUnames and pair[1] in SUnames and pair[0] != pair[1]:
-        print(pair[0], " interacts with ", pair[1])
         
-        tabfile.addInteraction("interaction.txt")
+        chain1 = chainDict[pair[0]]
+        chain2 = chainDict[pair[1]]
         
-        chain1 = chainDict[pair[0]][0]
-        chain2 = chainDict[pair[1]][0]
+        chain1TXID = chain1["taxid"]
+        chain2TXID = chain2["taxid"]
         
-        tabfile.addMolecule(chain1, "molecule.txt")
-        tabfile.addMolecule(chain2, "molecule.txt")
+        # -1 represent in vitro
+        taxid = "-1"
+        if (chain1TXID == chain2TXID):
+            taxid = chain1TXID
+        
+        tabfile.addInteraction("interactionInterfaces.txt",False,pdbname,taxid)
+        
+        chain1UP = chain1["likelyUniprotID"]
+        chain1NCBI = chain1["taxid"]
+        chain2UP = chain2["likelyUniprotID"]
+        chain2NCBI = chain2["taxid"]
+        
+        tabfile.addMolecule(chain1UP, chain1NCBI, "molecule.txt")
+        tabfile.addMolecule(chain2UP, chain1NCBI, "molecule.txt")
         
 
 
