@@ -13,15 +13,28 @@ class TabFile:
     def __init__(self,filename):
         self.tabfile = open(filename+".txt","w")
         
+        
     # Add molecule to interaction using a template file    
-    def addMolecule(self,uniprotID, taxid, templateFile):
+    def addMolecule(self,uniprotID, taxid, stoich,templateFile, BR):
         self.tabfile.write('\n')
         molecule = ""
         template = open(templateFile,'r')
         for ln in template:
             molecule += ln
-        cmolecule = molecule.replace("%UNIPROT%","uprot:" + uniprotID).replace("%TAXID%",taxid)
+        cmolecule = molecule.replace("%UNIPROT%","uprot:" + uniprotID).replace("%TAXID%",taxid).replace("%STOICHIOMETRY%",str(stoich))
+        
+        # Adds a binding region if one is detected
+        if (BR != False):
+            BRstring = ""
+            BRtemplate = open("bindingRegion.txt",'r')
+            for ln in BRtemplate:
+                BRstring += ln
+                cBRstring = BRstring.replace("%START%", str(BR[0])).replace("%END%", str(BR[1]))
+            
+            cmolecule += cBRstring
+    
         self.tabfile.write(cmolecule)
+        self.tabfile.write('\n')
         
         
     # Add interaction using a template file
@@ -36,7 +49,7 @@ class TabFile:
         template = open(templateFile,'r')
         for ln in template:
             interaction += ln
-        cinteraction = interaction.replace("%INTERACTION%",interactionType).replace("%PDB%",pdb).replace("%TAXID%",taxid)
+        cinteraction = interaction.replace("%INTERACTION%",interactionType).replace("%PDB%",pdb).replace("%TAXID%",str(taxid))
         self.tabfile.write(cinteraction)
         
     def addHeader(self,templateFile,doi,source,pmid,pdb):
@@ -47,6 +60,5 @@ class TabFile:
             header += ln
         cheader = header.replace("%DOI%",doi).replace("%SOURCE%",source).replace("%PMID%",pmid).replace("%PDB%",pdb)
         self.tabfile.write(cheader)
-
 
     

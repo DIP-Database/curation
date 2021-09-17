@@ -22,12 +22,13 @@ import pprint
 pp = pprint.PrettyPrinter(indent=4) 
 
 class subunit:
-    def __init__(self,identifier,stoichiometry,uniprotID,seq,taxid):
+    def __init__(self,identifier,stoichiometry,uniprotID,seq,taxid, refid):
         self.identifier = identifier
         self.stoichiometry = stoichiometry
         self.uniprotID = uniprotID
         self.seq = seq
         self.taxid = taxid
+        self.refid = refid
 
 
 class pdb:
@@ -43,6 +44,14 @@ class pdb:
                    + " occurs " + str(curSubUnit.stoichiometry) + " times " +
                    "with sequence: " + curSubUnit.seq)
         
+
+
+def makePath(path):
+    try:
+        os.makedirs(path, exist_ok = True)
+    except OSError:
+        print("Directory '%s' can not be created" % path)
+
 
 # Analyzes composition of pdb via a PISA multimers file
 def scrapeComposition(multimerFile):
@@ -96,13 +105,27 @@ def scrapeCIF(cifFile, cifFileCopy,dirPath):
     chainDict = {}
     
     parsedCif = SeqIO.parse(cifFile,"cif-seqres")
+    
+    # Some information is not supported by Bio.SeqIO so lower level access with MMCIF2Dict is necessary
+    mmcifDict = mm.MMCIF2Dict(cifFileCopy)
+    
+    seqList = []
+    for sequence in mmcifDict["_struct_ref.pdbx_seq_one_letter_code"]:
+        sequenceReadable = "".join(sequence).replace('\n','')
+        seqList.append(sequenceReadable)
+
+    seqDict = dict(zip(mmcifDict["_struct_ref.pdbx_db_accession"], seqList ))
+    ncbiDict = dict(zip(mmcifDict["_entity_src_gen.entity_id"],mmcifDict["_entity_src_gen.pdbx_host_org_ncbi_taxonomy_id"]))
+    refDict = dict(zip(mmcifDict["_struct_ref_seq.pdbx_strand_id"],mmcifDict["_struct_ref_seq.ref_id"]))
 
     for record in parsedCif:
+        
         if (len(record.dbxrefs) > 0):
-            print(record.description)
+            
             curUniprotID = record.dbxrefs[0][4:]
             curChain = re.sub('\w+\:', '', record.id)
-            seq = record.seq
+
+            seq = seqDict[curUniprotID]
             
             # Unsed to seperate out invalid uniprotIDs
             if (len(curUniprotID) != 6 and len(curUniprotID) != 10):
@@ -134,19 +157,28 @@ def scrapeCIF(cifFile, cifFileCopy,dirPath):
             chainInfo["likelyUniprotID"] = likelyIsfmName
             chainInfo["isfmRange"] = isfmRange
             chainDict[curChain] = chainInfo     
-        
-    # Now, to determine which taxonomic ID corresponds to each subunit. This feature is not supported by Bio.SeqIO so lower level access with MMCIF2Dict is necessary
-    mmcifDict = mm.MMCIF2Dict(cifFileCopy)
 
-    ncbiDict = dict(zip(mmcifDict["_entity_src_gen.entity_id"],mmcifDict["_entity_src_gen.pdbx_host_org_ncbi_taxonomy_id"]))
-    refDict = dict(zip(mmcifDict["_struct_ref_seq.pdbx_strand_id"],mmcifDict["_struct_ref_seq.ref_id"]))
     
     for key in chainDict:
+        
+        # Used to store info about the taxonomic id associated with molecule
         chainDict[key]["taxid"] = ncbiDict[refDict[key]]
+        
+        
+        # Used to store info used further on about stoichiometry of interaction
+        chainDict[key]["refid"] = refDict[key]
 
     pp.pprint(chainDict)
+    
+    # Used as a breakpoint in case there is no interaction:
+    if chainDict == {}:
+        print("no interaction detected")
+        exit()
+    
+    
     return chainDict
 
+# This function gets information from a cif about references
 def getHeaderInfo(cifFile):
     mmcifDict = mm.MMCIF2Dict(cifFile)
     pmid = mmcifDict["_citation.pdbx_database_id_PubMed"]
@@ -159,8 +191,6 @@ def getPage(url, filePath):
     if (os.path.exists(filePath)):
         file = open(filePath,"r")
     else:
-        print(url)
-        print(filePath)
         parsedurl = etree.parse(urllib.request.urlopen(url))
         result = etree.tostring(parsedurl, method="html")
         file = open(filePath, 'w')
@@ -188,11 +218,13 @@ def rankAlignments(sequence,listOfPossibleIsoforms, uniprotID):
     maxScoreName = ""
     scores = []
     isBR = False
+    
+    # Compare all the isoforms
     for isfmName in listOfPossibleIsoforms:
         isoform = listOfPossibleIsoforms[isfmName] #isoform sequence
         alignmentScore = pairwise2.align.globalms(sequence, isoform, 2, -1 , -2, -0.1, score_only=True)
         scores.append(alignmentScore)
-        if (alignmentScore > maxScore):
+        if (alignmentScore > maxScore and len(sequence) >= len(isoform)):
             maxScore = alignmentScore
             maxScoreName = isfmName
             
@@ -287,6 +319,8 @@ def findInteractions(pdb, filePath):
             elif graph[pair[0]].count(pair[1]) < 1:
                 graph[pair[0]].append(pair[1])
                 
+    
+         
     isDirect = True
     for key in graph:
         if len(graph[key]) != numchains - 1:
@@ -301,11 +335,7 @@ def findInteractions(pdb, filePath):
     return (chainlist,result)  
   
     
-    # The graph structure is useful for visualizing what subunits interact with each other
-    #pp.pprint(graph)
-    
-    #return graph
-    
+
 
     
     

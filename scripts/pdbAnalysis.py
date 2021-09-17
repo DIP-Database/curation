@@ -9,7 +9,6 @@ Created on Tue Jul  6 19:07:10 2021
 
 import pdbRelated as pb
 import argparse
-from lxml import etree
 import os
 import pdbToTab as tb
 
@@ -19,9 +18,6 @@ myparser = argparse.ArgumentParser( description='PDB Analyzer' )
 myparser.add_argument( '--pdb', '-s',  dest="pdb", type=str, required=True,
                      help='Four character pdb')
 
-myparser.add_argument( '--pmid', '-p',  dest="pmid", type=str, required=True,
-                     help='Eight digit PubMed Identification Code')
-
 myparser.add_argument( '--source', '-src',  dest="source", type=str, required=False,
                       default="DIP",
                      help='Curation Source (default is DIP)')
@@ -29,46 +25,45 @@ myparser.add_argument( '--source', '-src',  dest="source", type=str, required=Fa
 args = myparser.parse_args()
 pdbname = args.pdb.lower()
 source = args.source
-if args.pmid.isnumeric() and len(args.pmid) == 8:
-    pmid = args.pmid
-else:
-    print("Invalid pmid.")
 
 multimerUrl = "https://www.ebi.ac.uk/pdbe/pisa/cgi-bin/multimers.pisa?" + pdbname
 
 
-
 parentdir = os.getcwd() + "/"
-path = parentdir + "cache/" + pdbname[:2] + "/" + pdbname + "/"
-try:
-    os.makedirs(path, exist_ok = True)
-except OSError:
-    print("Directory '%s' can not be created" % path)
-    
 
-multimerPath = path + pdbname + ".mlt.xml"
+    
+pathPISA = parentdir + "pisa" + "/" + pdbname[:1] + "/" + pdbname[:2] + "/" + pdbname + "/"
+pb.makePath(pathPISA)
+
+multimerPath = (pathPISA + pdbname + ".mlt.xml")
 multimerFile = pb.getPage(multimerUrl, multimerPath)
 stoichDict = pb.scrapeComposition(multimerFile)
 
-interfacePath = path + pdbname + ".int.xml"
+
+
+interfacePath = (pathPISA + pdbname + ".int.xml")
 interface = pb.findInteractions(pdbname,interfacePath)
 chainlist = interface[0]
 interfacePairs = interface[1]
 
 
+pathPDB = parentdir + "pdb" + "/" + pdbname[:1] + "/" + pdbname[:2] + "/" + pdbname + "/"
+pb.makePath(pathPDB)
+cifPath = pathPDB + pdbname + ".cif"
 
-cifPath = path + pdbname + ".cif"
 cifFile = pb.getCif(pdbname,cifPath)
-# Copy of cif File necessary because parser module changes the object so it cannot be parsed twice
+# Copy of cif File necessary because parser module changes the object so it cannot be parsed more than once
 cifFile2 = pb.getCif(pdbname,cifPath)
 cifFile3 = pb.getCif(pdbname,cifPath)
 
 
-chainDict = pb.scrapeCIF(cifFile,cifFile2,path)
-
+chainDict = pb.scrapeCIF(cifFile,cifFile2,pathPDB)
 
 listOfSU = []
 listOfTXID = []
+SUnames = []
+
+
 for chain in chainlist:
     if chain in chainDict:
         uniprotID = chainDict[chain]["likelyUniprotID"]
@@ -76,20 +71,27 @@ for chain in chainlist:
         stoich = 0
         if chain in stoichDict:
             stoich = stoichDict[chain]
-        SUtaxid = chainDict[chain]["taxid"]    
-        newSU = pb.subunit(chain, stoich, uniprotID, chainDict[chain]["sequence"], SUtaxid)
+        SUtaxid = chainDict[chain]["taxid"]
+        SUrefid = chainDict[chain]["refid"]
+        newSU = pb.subunit(chain, stoich, uniprotID, chainDict[chain]["sequence"], SUtaxid, SUrefid)
         listOfSU.append(newSU)
         listOfTXID.append(SUtaxid)
+        SUnames.append(chain)
         
 
 
 newpdb = pb.pdb(pdbname, listOfSU)
 
-tabfile = tb.TabFile(pmid)
+
 
 headerInfo = pb.getHeaderInfo(cifFile3)
 pmid = headerInfo[0][0]
 doi = headerInfo[1][0]
+pathOUTPUT = parentdir + "output" + "/" + pdbname[:1] + "/" + pdbname[:2] + "/" + pdbname + "/"
+pb.makePath(pathOUTPUT)
+outputPath = (pathOUTPUT + pdbname + "Tab").replace("$REPLACE","output")
+
+tabfile = tb.TabFile(outputPath)
 tabfile.addHeader("header.txt",doi, source, pmid, pdbname)
 
 overallTaxid = -1
@@ -98,15 +100,26 @@ if (len(set(listOfTXID)) == 1):
     
 tabfile.addInteraction("interaction.txt",True,pdbname,overallTaxid)
 
-SUnames = []
 
+refIDs = {}
 for SU in listOfSU:
-    SUnames.append(SU.identifier)
-    tabfile.addMolecule(SU.uniprotID, SU.taxid, "molecule.txt")
+    if SU.refid not in refIDs:
+        refIDs[SU.refid] = 1
+    else:
+        refIDs[SU.refid] += 1
+
+for refID in refIDs:
+    for SU in listOfSU:
+        if refID == SU.refid:
+
+            tabfile.addMolecule(SU.uniprotID, SU.taxid, refIDs[refID], "molecule.txt", chainDict[SU.identifier]["isfmRange"])
+            break
     
+
 for pair in interfacePairs:
+
     if pair[0] in SUnames and pair[1] in SUnames and pair[0] != pair[1]:
-        
+
         chain1 = chainDict[pair[0]]
         chain2 = chainDict[pair[1]]
         
@@ -122,11 +135,14 @@ for pair in interfacePairs:
         
         chain1UP = chain1["likelyUniprotID"]
         chain1NCBI = chain1["taxid"]
+        chain1BR = chain1["isfmRange"]
+        
         chain2UP = chain2["likelyUniprotID"]
         chain2NCBI = chain2["taxid"]
+        chain2BR = chain2["isfmRange"]
         
-        tabfile.addMolecule(chain1UP, chain1NCBI, "molecule.txt")
-        tabfile.addMolecule(chain2UP, chain1NCBI, "molecule.txt")
+        tabfile.addMolecule(chain1UP, chain1NCBI, 0, "molecule.txt",chain1BR)
+        tabfile.addMolecule(chain2UP, chain2NCBI, 0, "molecule.txt", chain2BR)
         
 
 
