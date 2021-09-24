@@ -1,7 +1,0 @@
-interaction	MI:0195(physical association)	MI:0658	1758
-			
-moleculeMI:0326(protein)	?	1	?
-exprole	bait		
-exprep	MI:0222(physiological)	MI:0350(purified)	
-biorole	MI:0499(unspecified)		
-idmethod	MI:0396(predetermined) MI:2287(id by structure determination)		
